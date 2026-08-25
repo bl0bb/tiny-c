@@ -1,0 +1,7 @@
+steps from code to program
+1. tokenize: turn code into tokens easy to work with (keywords, variable names, puncts, string literals, char literals, number literals, etc)
+2. preprocess: resolve include headers and process preprocessors (#ifdef, #ifndef, #define, etc)
+3. IR: define static and global variables and definitions, parse code logic
+4. validate: validate the IR to ensure it is possible to compile the code (no unresolved names, illegal statements or any other impossibilities)
+5. compile: convert the code to assembly
+6. machine code and linking: convert to machine code and link using assembler and linker preinstalled on system

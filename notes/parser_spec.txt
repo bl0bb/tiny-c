@@ -1,0 +1,172 @@
+stuff to remember:
+global variables in C MUST be constant expressions
+meaning they have to be evaluated at compile time
+
+valid:
+i32 x = 5 * 2;
+
+
+invalid:
+i32 x = rand();
+
+do this instead:
+i32 x;
+
+i32 main() {
+    x = rand();
+}
+
+
+
+
+
+
+definitions:
+
+expression: computes a value, e.g, 3 + 4, x * y, a > 5, a ? b : c
+expressions are parsed
+statement: performs an action, if (expression) { statements }, while (expression) { statements }
+statements include control flow (e.g. if, for, while, return, switch)
+expressions do not include control flow
+
+parsing expressions
+use pratt parsing to parse expressions
+
+blablalalbalblabl
+
+
+
+
+
+global parsing thing:
+
+while loop
+get declaration specification (flags for a declaration specification: static, int, void*, enum, struct, typedef, etc...)
+get the thing we are defining (variable, function, enum, struct etc)
+parse the thing we are defining ^
+
+
+
+
+parsing global things
+
+variable:
+declaration specification + type + variable name + (optional) expression
+
+function:
+declaration specification + type + function name + function args (part of type suffix) + (optional) definition (compound statement)
+
+
+
+
+parsing normal things
+
+variable:
+more or less same as global variable parsing, global variable parsing should probably call this or something similar since they share logic (i think)
+
+function call:
+identifier (that refers to a function), starting parenthesis, expressions... (optional), closing parenthesis
+
+
+
+
+builtin parser things
+
+expression:
+parses bottom up from the c operator precedence (https://en.cppreference.com/w/c/language/operator_precedence.html)
+
+the following parsing functions exist for each c operator precedence:
+
+assignment / assignment with operator (e.g. +=):
+uses pratt parsing
+expression = next operator with lower precedence (in this case: ternary)
+expression (l value), equal sign (=), expression
+
+ternary:
+uses pratt parsing
+expression = next operator with lower precedence (in this case: logical OR (||))
+expression, question mark (?), expression, colon (:), expression
+
+logical OR (||):
+uses pratt parsing
+
+logical AND (&&):
+uses pratt parsing
+
+bitwise OR (|):
+uses pratt parsing
+
+bitwise XOR (^):
+uses pratt parsing
+
+bitwise AND (&):
+uses pratt parsing
+
+relational (==, !=):
+uses pratt parsing
+
+relational (<, <=, >, >=)
+uses pratt parsing
+
+addition / subtraction (+, -)
+uses pratt parsing
+
+mul / div / mod (*, /, %)
+uses pratt parsing
+
+
+pratt parsing template:
+ASTNode *pratt_parser(Token **tok) {
+    ASTNode *node = pratt_parse_next();
+
+    while (*tok) { // token is valid
+        if (!tok_is_current_precedence) {
+            break;
+        }
+
+        *tok = (*tok)->next; // skip the operator token
+
+        node = create_ast(THIS_OPERATOR, node, pratt_parse_next());
+    }
+
+    return node;
+}
+
+
+
+
+
+ast obj:
+variables and functions are objects
+
+
+
+
+
+
+
+
+code gen
+how to turn ast to c code
+first make sure that the ast is validated and can be compiled
+
+compiling things
+
+variable assignment:
+int x = 5;
+
+DWORD being the size of the operand (in this case: int)
+-4 being the variables offset (prev variable offset - operand size) (0 and 4 in this case)
+mov DWORD PTR [rbp-4], 5
+
+
+addition:
+x += 2;
+add DWORD PTR [rbp-4], 2;
+
+
+multiplication:
+5 * 2;
+
+mov eax, 5
+imul eax, 2

@@ -1,3 +1,6 @@
+# run on windows
+# mingw32-make.exe run
+
 CC := gcc
 
 ERROR_FLAGS := \
@@ -10,12 +13,15 @@ C_FILES := \
 src/main.c\
 \
 src/types.h\
+src/array.h\
 src/file.h\
 \
 src/log.h\
 src/log.c\
 src/tokenizer.h\
 src/tokenizer.c\
+src/string.h\
+src/string.c\
 
 
 

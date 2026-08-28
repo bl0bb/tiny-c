@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdarg.h>
 
 #include "log.h"
 
@@ -11,7 +12,7 @@ const i32 ansi_dim = 2;
 const i32 ansi_italic = 3;
 const i32 ansi_underline = 4;
 const i32 ansi_slow_blinking = 5;
-const i32 ansi_fast_blinking = 6; // wasnt listed on ANSI code github ()
+const i32 ansi_fast_blinking = 6; // wasnt listed on ANSI code github
 const i32 ansi_inverse = 7;
 const i32 ansi_invisible = 8;
 const i32 ansi_strikethrough = 9;
@@ -172,9 +173,6 @@ void raw_print_log_at(char *file_path, char *file_contents, char *message_type, 
     ansi_seq(stdout, 1, ansi_reset);
     printf("\n");
     */
-
-
-    exit(1);
 }
 
 // position

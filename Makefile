@@ -16,6 +16,8 @@ src/types.h\
 src/array.h\
 src/file.h\
 \
+src/ast.h\
+src/ast.c\
 src/log.h\
 src/log.c\
 src/tokenizer.h\

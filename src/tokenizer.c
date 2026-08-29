@@ -73,6 +73,12 @@ const char *TOKENIZER_PUNCTS[] = {
     ";",
 };
 
+// misc for tokens
+bool tokenizer_token_equals(Token *tok, char *str) {
+    i32 len = strlen(str);
+    return strncmp(tok, str, len) == 0 && tok->len == len;
+}
+
 // send in a reference of a pointer, and it will increment the referenced pointer as long as the current character is whitespace and not null
 void skip_whitespace(char **ptr) {
     while (**ptr && isspace(**ptr)) (*ptr)++;
@@ -320,8 +326,8 @@ Token *tokenizer_tokenize(File *file) {
                 exit(1);
             }
 
-            tok = tokenizer_create_token(code_ptr, new_code_ptr, TOK_CHAR);
-            tok.char_val = ch;
+            tok = tokenizer_create_token(code_ptr, new_code_ptr, TOK_NUM);
+            tok.u64_val = ch;
         } else {
             i8 punct_idx = tokenizer_get_punct(&new_code_ptr);
 

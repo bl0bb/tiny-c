@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -50,7 +51,49 @@ i32 main(i32 argc, char *argv[]) {
 
     Token *head = tokenizer_tokenize(&main_file);
 
-    // rest of the code goes here
+    Token *cur_tok = head;
+    while (cur_tok) {
+        char *type_str;
+        switch (cur_tok->type) {
+            case TOK_NONE:
+                type_str = "NONE";
+                break;
+            case TOK_NUM:
+                type_str = "NUM";
+                break;
+            case TOK_STR:
+                type_str = "STR";
+                break;
+            case TOK_KEYWORD:
+                type_str = "KEYWORD";
+                break;
+            case TOK_PUNCT:
+                type_str = "PUNCT";
+                break;
+        }
+        i32 padding = 4;
+        printf("Token type: %s:\n", type_str);
+        for (char *code_ref = cur_tok->start - padding; *code_ref && code_ref < cur_tok->start + cur_tok->len + padding; code_ref++) {
+            if (isspace(*code_ref)) {
+                printf(" ");
+                continue;
+            }
+            printf("%c", *code_ref);
+        }
+        printf("\n");
+        for (i32 i = 0; i < padding; i++) {
+            printf(" ");
+        }
+        for (i32 i = 0; i < cur_tok->len; i++) {
+            printf("~");
+        }
+        for (i32 i = 0; i < padding; i++) {
+            printf(" ");
+        }
+        printf("\n");
+
+        cur_tok = cur_tok->next;
+    }
 
     // tokens do not reallocate their string value upon creation, they hold references, so we have to wait until the end of the program to free the buffer
     free(buffer);

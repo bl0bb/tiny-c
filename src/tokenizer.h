@@ -6,9 +6,8 @@
 
 typedef enum {
     TOK_NONE = 0,
-    TOK_NUM,
+    TOK_NUM, // since chars and numbers are "basically the same" (both are numerical values), they are treated as numbers
     TOK_STR,
-    TOK_CHAR,
     TOK_KEYWORD, // or variable
     TOK_PUNCT,
 } TokenType;
@@ -33,12 +32,11 @@ struct Token {
             char *str_data;
         };
 
-        // char literal (e.g. 'a', '\0', '\x36')
-        struct {
-            char char_val;
-        };
-
-        // number literal
+        // number literal (e.g. 1, 0b0101, 0x36, 0.4f, .3)
+        // or char literal (e.g. 'a', '\0', '\x36')
+        // since chars are numerical values, there is no point in making separate logic for chars and numbers when they behave "the same" under the hood
+        // this is fine unless for type checking in strict languages (like C++) or maybe ill implement something later
+        // then it wont know if a number token is really a number or a char
         struct {
             // for easy access
             // im unsure about when C converts number to the desired type and when it doesnt

@@ -1,10 +1,51 @@
 #include "ast.h"
 
+
+
+// node creation helpers
+ASTNode *ast_create_unary(ASTNodeType type, ASTNode *lhs, Token *tok) {
+    ASTNode *node = calloc(1, sizeof(ASTNode));
+    node->type = type;
+    node->tok = tok;
+    node->lhs = lhs;
+    return node;
+}
+
+ASTNode *ast_create_binary(ASTNodeType type, ASTNode *lhs, ASTNode *rhs, Token *tok) {
+    ASTNode *node = calloc(1, sizeof(ASTNode));
+    node->type = type;
+    node->tok = tok;
+    node->lhs = lhs;
+    node->rhs = rhs;
+    return node;
+}
+
+ASTNode *ast_create_num(Token *tok, u64 num) {
+    ASTNode *node = calloc(1, sizeof(ASTNode));
+    node->type = AST_NODE_NUM;
+    node->tok = tok;
+    node->u64_val = num;
+    return node;
+}
+
+// TODO: strings are stored in .rodata, so we keep track of string literals and put the constant ones (e.g. printf("some string")) into .rodata and the writable ones (e.g. char *myStr = "some string") into a a writable part of the program
+// as of me writing this, this function only returns a pointer node that points to nothing
+ASTNode *ast_create_str(Token *tok, char *str) {
+    
+}
+
+
 // expects an expression and parses it
 // uses pratt parsing and parses expressions as long as it can
 // e.g. will parse this entire expression: x = 5 + 3 * 2 / 5
-void ast_parse_expr(Token **out, Token *tok) {
-
+// this function is purely for readability and "scalability"
+// it will always call the highest precedence operator to initiate the whole expression pratt parsing
+// if another operator is added that has a higher precedence than ",", this function will call that function instead since its the new highest
+// it also helps with reading, as reading "ast_parse_expr" clearly means "we are parsing an expression" where as "ast_parse_comma" could be confusing, as if were expecting it to be a comma
+ASTNode *ast_parse_expr(Token **out, Token *tok) {
+    ASTNode *node = ast_parse_comma(&tok, tok);
+    *out = tok;
+    return node;
 }
 
 // pratt parsing for each expression
@@ -88,7 +129,7 @@ ASTNode *ast_parse_assign(Token **out, Token *tok) {
         } else {
             ASTNode *op_rhs = ast_parse_tern(&tok, tok);
 
-            rhs = ast_create_binary(additional_operator, lhs, op_rhs);
+            rhs = ast_create_binary(additional_operator, lhs, op_rhs, tok);
         }
 
         lhs = ast_create_binary(AST_NODE_ASSIGN, lhs, rhs, tok);
@@ -247,7 +288,7 @@ ASTNode *ast_parse_relational_eq(Token **out, Token *tok) {
         tok = tok->next;
 
         ASTNode *rhs = ast_parse_relational_diff(&tok, tok);
-        lhs = ast_create_binary(relation_type, lhs, rhs);
+        lhs = ast_create_binary(relation_type, lhs, rhs, tok);
     }
 
     *out = tok;
@@ -275,7 +316,7 @@ ASTNode *ast_parse_relational_diff(Token **out, Token *tok) {
         tok = tok->next;
 
         ASTNode *rhs = ast_parse_shift(&tok, tok);
-        lhs = ast_create_binary(relation_type, lhs, rhs);
+        lhs = ast_create_binary(relation_type, lhs, rhs, tok);
     }
 
     *out = tok;
@@ -299,7 +340,7 @@ ASTNode *ast_parse_shift(Token **out, Token *tok) {
         tok = tok->next;
 
         ASTNode *rhs = ast_parse_add_sub(&tok, tok);
-        lhs = ast_create_binary(op_type, lhs, rhs);
+        lhs = ast_create_binary(op_type, lhs, rhs, tok);
     }
 
     *out = tok;
@@ -323,7 +364,7 @@ ASTNode *ast_parse_add_sub(Token **out, Token *tok) {
         tok = tok->next;
 
         ASTNode *rhs = ast_parse_mul_div_mod(&tok, tok);
-        lhs = ast_create_binary(op_type, lhs, rhs);
+        lhs = ast_create_binary(op_type, lhs, rhs, tok);
     }
 
     *out = tok;
@@ -349,7 +390,7 @@ ASTNode *ast_parse_mul_div_mod(Token **out, Token *tok) {
         tok = tok->next;
 
         ASTNode *rhs = ast_parse_prefix(&tok, tok);
-        lhs = ast_create_binary(op_type, lhs, rhs);
+        lhs = ast_create_binary(op_type, lhs, rhs, tok);
     }
 
     *out = tok;
@@ -366,9 +407,7 @@ ASTNode *ast_parse_mul_div_mod(Token **out, Token *tok) {
 // addr(deref(ptr))
 // when you "read" the code, addr is called first, but since its pratt parsing, deref finishes execution first and returns a deref node, then addr receives the deref and create an addr node, resulting in the order: addr->deref->ptr (get addr of deref of ptr)
 ASTNode *ast_parse_prefix(Token **out, Token *tok) {
-    ASTNode *lhs = ast_parse_postfix(&tok, tok);
-
-    ASTNodeType op_type;
+    ASTNodeType op_type = AST_NODE_NONE;
     // TODO: for unary ++ and --
     if (tokenizer_token_equals(tok, "+")) {
         // unary "+" does absolutely nothing in most cases
@@ -380,6 +419,8 @@ ASTNode *ast_parse_prefix(Token **out, Token *tok) {
         // it does NOT turn a negative number positive (e.g. x = -10, +x is still -10)
         // so i guess i should just repeat the logic of a type cast to int (e.g. +x logically becomes (int)x)
         // TODO: to whats stated above
+        printf("Unary \"+\" not implemented\n");
+        exit(1);
     } else if (tokenizer_token_equals(tok, "-")) {
         op_type = AST_NODE_NEG;
     } else if (tokenizer_token_equals(tok, "!")) {
@@ -393,27 +434,50 @@ ASTNode *ast_parse_prefix(Token **out, Token *tok) {
     } else {
         // alignof and sizeof
         if (tokenizer_token_equals(tok, "sizeof")) {
+            tok = tok->next;
             printf("\"sizeof\" not implemented\n");
             exit(1);
         } else if (tokenizer_token_equals(tok, "_Alignof")) {
+            tok = tok->next;
             printf("\"_Alignof\" not implemented\n");
             exit(1);
         }
 
-        // non-unary ast nodes (x++ is the same as x += 1, which is an addition node, and an assignment node)
+        // non-unary (binary) ast nodes (x++ is the same as x += 1, which is an addition node and an assignment node)
         if (tokenizer_token_equals(tok, "++")) {
             op_type = AST_NODE_ADD;
         } else if (tokenizer_token_equals(tok, "--")) {
             op_type = AST_NODE_SUB;
         }
-        printf("Unexpected token in primary\n");
-        exit(1);
+
+        if (op_type != AST_NODE_NONE) {
+            // ++ or --
+            // TODO: implement
+        }
+
+        tok = tok->next;
+
+        // if parenthesis is found, check if its a cast, or just a regular parenthesis (e.g. 5 * (3 + 2))
+        // if its a cast, parse the cast, otherwise proceed to next parsing step (postfix)
+        bool is_cast = false;
         if (tokenizer_token_equals(tok, "(")) {
-            // if parenthesis is found, check if its a cast, or just a regular parenthesis (e.g. 5 * (3 + 2))
+            // set "is_cast" to true, if cast was found
+            // TODO: implement
+        }
+
+        // this is the "base case" for the recursive "ast_parse_prefix" call, if no more prefixes are found, then proceed to next parsing step (postfix)
+        if (is_cast == false) {
+            ASTNode *node = ast_parse_postfix(&tok, tok);
+            *out = tok;
+            return node;
         }
     }
 
+    tok = tok->next;
 
+    ASTNode *node = ast_create_unary(op_type, ast_parse_prefix(&tok, tok), tok);
+    *out = tok;
+    return node;
 }
 
 // postfix
@@ -422,12 +486,57 @@ ASTNode *ast_parse_prefix(Token **out, Token *tok) {
 ASTNode *ast_parse_postfix(Token **out, Token *tok) {
     ASTNode *lhs = ast_parse_primary(&tok, tok);
 
+    while (tok) {
+        Token *op_tok = tok;
+        tok = tok->next;
+        if (tokenizer_token_equals(op_tok, "++")) {
+
+        } else if (tokenizer_token_equals(op_tok, "--")) {
+
+        } else if (tokenizer_token_equals(op_tok, ".")) {
+
+        } else if (tokenizer_token_equals(op_tok, "->")) {
+
+        } else if (tokenizer_token_equals(op_tok, "[")) {
+            // array indexing is just a derefing an offsetted pointer
+            // e.g.
+            // ptrOrArray[5]
+            // is the same as
+            // *(ptrOrArray + 5)
+            ASTNode *idx = ast_parse_expr(&tok, tok);
+            lhs = ast_create_binary(AST_NODE_ADD, lhs, ast_create_index(lhs, idx), tok);
+            lhs = ast_create_unary(AST_NODE_DEREF, lhs, tok);
+        } else if (tokenizer_token_equals(op_tok, "(")) {
+            // function call
+            // read arguments nodes and store them in the resulting AST_NODE_FUNCALL node
+            // TODO: implement
+        } else {
+            break;
+        }
+    }
+
+    *out = tok;
+    return lhs;
 }
 
 // primary (meaning something that immediately represents a value)
 // variable, "string", "char", 123, true, false, null
 // compound literals also go here even through they are technically in the postfix
 // i just dont think it makes sense that it should be a postfix... a postfix should add to some existing value... but as far as i understand compound literals, they are a value by themselves and does not add to an existing value
+// are they a part of postfix because of type casts? i dont know, i dont care (as of me writing this)
 ASTNode *ast_parse_primary(Token **out, Token *tok) {
+    ASTNode *node;
+    if (tok->type == TOK_NUM) {
+        node = ast_create_num(tok, tok->u64_val);
+    } else if (tok->type == TOK_STR) {
+        node = ast_create_str(tok, tok->str_data);
+    } else if (tok->type == TOK_KEYWORD) {
+        // check if its NOT a keyword, that means its a variable
+    } else {
+        printf("Invalid primary expression\n");
+        exit(1);
+    }
 
+    *out = tok;
+    return node;
 }

@@ -12,6 +12,8 @@
 // but they are different logical actions (addition, subtraction)
 // ast nodes represent the lowest representation of logic without stepping into assembly
 
+// function definitions arent logical nodes by themselves, they represent variables passed in, stack scope and how it behaves, a function call however is part of the logic
+
 typedef enum {
     AST_NODE_NONE = 0,
 
@@ -78,7 +80,25 @@ struct ASTNode {
 
     Type *ty;
 
+    // which token does this node belong to. used for debugging where parsing failed
+    Token *tok;
+
     union {
+        // num
+        struct {
+            // just a copy paste from how tokens store numbers
+            // im still unsure how to store and use them
+            union {
+                u64 u64_val;
+                i64 i64_val;
+                f64 f64_val;
+            };
+        };
+        // unary/binary expression (unary leaves rhs empty)
+        struct {
+            ASTNode *lhs;
+            ASTNode *rhs;
+        };
         // if, ternary
         struct {
             ASTNode *cond;

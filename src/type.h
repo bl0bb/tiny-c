@@ -44,6 +44,20 @@ typedef enum {
     TY_UNION,
 } TypeKind;
 
+// the type struct represents one part of a complete type (depending on what type it is)
+// e.g.
+// only one struct is needed for an int (i32): TypeKind: TY_INT32, is_signed: true
+// but for pointers
+// it becomes a linked list
+// keep in mind types are read right to left
+// e.g.
+// i32*
+// a variable with this type is storing a pointer, not an i32
+// derefing the pointer gives the NEXT type in line (i32)
+// so in memory its represented like this
+// ptr (->base) i32
+// the base is only used for pointers (and function pointers, if that wasnt clear)
+// because a pointer by itself is not a complete type, its pointing to some other type, hence the base member
 typedef struct Type Type;
 struct Type {
     TypeKind type;
@@ -54,6 +68,8 @@ struct Type {
 
     // token representation of the type, for compound literals and typedefs
     Token *tok;
+
+    Type *base;
 };
 
 #endif

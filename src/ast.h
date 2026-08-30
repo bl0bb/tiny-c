@@ -2,6 +2,7 @@
 #define AST_H
 
 #include "tokenizer.h"
+#include "type.h"
 
 // AST = abstract syntax tree
 // a way to represent program logic
@@ -12,68 +13,79 @@
 // ast nodes represent the lowest representation of logic without stepping into assembly
 
 typedef enum {
-    AST_NODE_TYPE_NONE = 0,
+    AST_NODE_NONE = 0,
 
-    AST_NODE_TYPE_ADD, // +
-    AST_NODE_TYPE_SUB, // -
-    AST_NODE_TYPE_MUL, // *
-    AST_NODE_TYPE_DIV, // /
-    AST_NODE_TYPE_MOD, // %
+    AST_NODE_ADD, // +
+    AST_NODE_SUB, // -
+    AST_NODE_MUL, // *
+    AST_NODE_DIV, // /
+    AST_NODE_MOD, // %
 
-    AST_NODE_TYPE_LSHIFT, // <<
-    AST_NODE_TYPE_RSHIFT, // >>
+    AST_NODE_LSHIFT, // <<
+    AST_NODE_RSHIFT, // >>
 
-    AST_NODE_TYPE_NEG, // unary -
+    AST_NODE_NEG, // unary -
 
-    AST_NODE_TYPE_ADDR, // unary &
-    AST_NODE_TYPE_DEREF, // unary *
+    AST_NODE_ADDR, // unary &
+    AST_NODE_DEREF, // unary *
 
     // -> is just: deref then member access
     // like this:
     // someStruct->someMember
     // same as
     // (*someStruct).someMember
-    AST_NODE_TYPE_MEMBER, // .
+    AST_NODE_MEMBER, // .
 
-    AST_NODE_TYPE_BNOT, // ~
-    AST_NODE_TYPE_BAND, // &
-    AST_NODE_TYPE_BOR, // |
-    AST_NODE_TYPE_BXOR, // ^
+    AST_NODE_BNOT, // ~
+    AST_NODE_BAND, // &
+    AST_NODE_BOR, // |
+    AST_NODE_BXOR, // ^
 
-    AST_NODE_TYPE_LNOT, // !
-    AST_NODE_TYPE_LAND, // &&
-    AST_NODE_TYPE_LOR, // ||
+    AST_NODE_LNOT, // !
+    AST_NODE_LAND, // &&
+    AST_NODE_LOR, // ||
     // wouldnt this be funny
-    // AST_NODE_TYPE_LXOR, // ^^
+    // AST_NODE_LXOR, // ^^
 
-    AST_NODE_TYPE_EQ, // ==
-    AST_NODE_TYPE_NE, // !=
-    AST_NODE_TYPE_LE, // <=
-    AST_NODE_TYPE_GE, // >=
-    AST_NODE_TYPE_LT, // <
-    AST_NODE_TYPE_GT, // >
+    AST_NODE_EQ, // ==
+    AST_NODE_NE, // !=
+    AST_NODE_LE, // <=
+    AST_NODE_GE, // >=
+    AST_NODE_LT, // <
+    AST_NODE_GT, // >
 
-    AST_NODE_TYPE_IF, // "if"
-    AST_NODE_TYPE_FOR, // "for" or "while"
-    AST_NODE_TYPE_DO, // "do"
-    AST_NODE_TYPE_SWITCH, // "switch"
-    AST_NODE_TYPE_CASE, // "case" in a "switch"
-    AST_NODE_TYPE_BLOCK, // block { ... }
-    AST_NODE_TYPE_NUM, // numeric literal
-    AST_NODE_TYPE_CAST, // type cast
-    AST_NODE_TYPE_TERN, // ? :
-    AST_NODE_TYPE_RET, // "return"
+    AST_NODE_IF, // "if"
+    AST_NODE_FOR, // "for" or "while"
+    AST_NODE_DO, // "do"
+    AST_NODE_SWITCH, // "switch"
+    AST_NODE_CASE, // "case" in a "switch"
+    AST_NODE_BLOCK, // block { ... }
+    AST_NODE_NUM, // numeric literal
+    AST_NODE_CAST, // type cast
+    AST_NODE_TERN, // ? :
+    AST_NODE_RET, // "return"
 
-    AST_NODE_TYPE_COMMA, // ,
+    AST_NODE_COMMA, // ,
 
-    AST_NODE_TYPE_ASSIGN, // assignment =
-    AST_NODE_TYPE_VAR, // variable
-    AST_NODE_TYPE_FUNCALL, // function call
+    AST_NODE_ASSIGN, // assignment =
+    AST_NODE_VAR, // variable
+    AST_NODE_FUNCALL, // function call
 } ASTNodeType;
 
 typedef struct ASTNode ASTNode;
 struct ASTNode {
     ASTNodeType type;
+
+    Type *ty;
+
+    union {
+        // if, ternary
+        struct {
+            ASTNode *cond;
+            ASTNode *then;
+            ASTNode *els;
+        };
+    };
 };
 
 #endif

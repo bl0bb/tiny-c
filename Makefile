@@ -24,6 +24,8 @@ src/tokenizer.h\
 src/tokenizer.c\
 src/string.h\
 src/string.c\
+src/type.h\
+src/type.c\
 
 
 

@@ -25,7 +25,7 @@ Type *type_new(TypeKind type, u32 size, u32 align) {
 // shallow copy of a type
 Type *type_copy(Type *ty) {
     Type *res = malloc(sizeof(Type));
-    *res = ty;
+    *res = *ty;
     return res;
 }
 

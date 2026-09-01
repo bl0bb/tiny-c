@@ -83,6 +83,11 @@ struct ASTNode {
     // which token does this node belong to. used for debugging where parsing failed
     Token *tok;
 
+    // in block statements, each statement inside is stored as a linked list
+    // the "next" member is used to access the next statement
+    ASTNode *next;
+
+    // data for each type
     union {
         // num
         struct {
@@ -94,7 +99,8 @@ struct ASTNode {
                 f64 f64_val;
             };
         };
-        // unary/binary expression (unary leaves rhs empty)
+        // unary / binary expression (unary only uses "lhs")
+        // return also uses "lhs" for return value
         struct {
             ASTNode *lhs;
             ASTNode *rhs;
@@ -104,6 +110,28 @@ struct ASTNode {
             ASTNode *cond;
             ASTNode *then;
             ASTNode *els;
+        };
+        // for / while (while only uses "cond" and "then")
+        struct {
+            ASTNode *init;
+            ASTNode *cond;
+            ASTNode *inc;
+            ASTNode *then;
+        };
+        // do / do while (if its a "do while" and not a regular "do", then cond is NOT 0. if condition is 0, that means its a regular "do")
+        // TODO: is there a better or easier-to-understand way of storing "do while" statements? should they perhaps be regular "while" statements with a flag of sorts? or just keep it as a "do"? idk
+        struct {
+            ASTNode *cond;
+            ASTNode *then;
+        };
+        // switch
+        struct {
+            ASTNode *cmp_val;
+            ASTNode *next_case; // first case in the case linked list for this switch
+        };
+        // case (in a switch)
+        struct {
+            ASTNode *val; // the value to check for in this case
         };
     };
 };

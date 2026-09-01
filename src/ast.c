@@ -3,6 +3,13 @@
 
 
 // node creation helpers
+ASTNode *ast_create_empty(ASTNodeType type, Token *tok) {
+    ASTNode *node = calloc(1, sizeof(ASTNode));
+    node->type = type;
+    node->tok = tok;
+    return node;
+}
+
 ASTNode *ast_create_unary(ASTNodeType type, ASTNode *lhs, Token *tok) {
     ASTNode *node = calloc(1, sizeof(ASTNode));
     node->type = type;
@@ -31,7 +38,7 @@ ASTNode *ast_create_num(Token *tok, u64 num) {
 // TODO: strings are stored in .rodata, so we keep track of string literals and put the constant ones (e.g. printf("some string")) into .rodata and the writable ones (e.g. char *myStr = "some string") into a a writable part of the program
 // as of me writing this, this function only returns a pointer node that points to nothing
 ASTNode *ast_create_str(Token *tok, char *str) {
-    
+
 }
 
 
@@ -44,6 +51,19 @@ ASTNode *ast_create_str(Token *tok, char *str) {
 // it also helps with reading, as reading "ast_parse_expr" clearly means "we are parsing an expression" where as "ast_parse_comma" could be confusing, as if were expecting it to be a comma
 ASTNode *ast_parse_expr(Token **out, Token *tok) {
     ASTNode *node = ast_parse_comma(&tok, tok);
+    *out = tok;
+    return node;
+}
+
+// parses an expression statement
+// literally just an expression followed by a semicolon
+// used in the statement parser
+ASTNode *ast_parse_expr_stmt(Token **out, Token *tok) {
+    ASTNode *node = ast_parse_expr(&tok, tok);
+    if (!tokenizer_skip_token(&tok, ";")) {
+        printf("Expected \";\" after expression\n");
+        exit(1);
+    }
     *out = tok;
     return node;
 }
@@ -535,6 +555,199 @@ ASTNode *ast_parse_primary(Token **out, Token *tok) {
     } else {
         printf("Invalid primary expression\n");
         exit(1);
+    }
+
+    *out = tok;
+    return node;
+}
+
+
+
+
+
+
+
+// statement parsing
+// parses a block statement
+// "{" statements... "}"
+ASTNode *ast_parse_block_stmt(Token **out, Token *tok) {
+    if (!tokenizer_skip_token(&tok, "{")) {
+        printf("Expected \"{\" at start of block statement\n");
+        exit(1);
+    }
+
+    // TODO: parse statements in block here
+
+    if (!tokenizer_skip_token(&tok, "}")) {
+        printf("Expected \"}\" after block statement\n");
+        exit(1);
+    }
+}
+
+
+// parses a statement
+ASTNode *ast_parse_stmt(Token **out, Token *tok) {
+    ASTNode *node;
+
+    if (tokenizer_equals(tok, "if")) {
+        node = ast_create_empty(AST_NODE_IF, tok);
+        tok = tok->next;
+
+        if (!tokenizer_skip_token(&tok, "(")) {
+            printf("Expected \"(\" before condition in \"if\"\n");
+            exit(1);
+        }
+
+        node->cond = ast_parse_expr(&tok, tok);
+
+        if (!tokenizer_skip_token(&tok, ")")) {
+            printf("Expected \")\" after condition in \"if\"\n");
+            exit(1);
+        }
+
+        node->then = ast_parse_stmt(&tok, tok);
+
+        if (tokenizer_token_equals(tok, "else")) {
+            node->els = ast_parse_stmt(&tok, tok);
+        }
+    } else if (tokenizer_token_equals(tok, "for")) {
+        node = ast_create_empty(AST_NODE_FOR, tok);
+        tok = tok->next;
+
+        if (!tokenizer_skip_token(&tok, "(")) {
+            printf("Expected \"(\" before loop setup in \"for\"\n");
+            exit(1);
+        }
+
+        node->init = ast_parse_expr_stmt(&tok, tok);
+        node->cond = ast_parse_expr_stmt(&tok, tok);
+        node->inc = ast_parse_expr(&tok, tok); // not a statement since its the last part of the loop setup and therefore doesnt contain a semicolon
+
+        if (!tokenizer_skip_token(&tok, ")")) {
+            printf("Expected \")\" after loop setup in \"for\"\n");
+            exit(1);
+        }
+
+        node->then = ast_parse_stmt(&tok, tok);
+    } else if (tokenizer_token_equals(tok, "while")) {
+        node = ast_create_empty(AST_NODE_FOR, tok);
+        tok = tok->next;
+
+        if (!tokenizer_skip_token(&tok, "(")) {
+            printf("Expected \"(\" before condition in \"while\"\n");
+            exit(1);
+        }
+
+        node->cond = ast_parse_expr(&tok, tok);
+
+        if (!tokenizer_skip_token(&tok, ")")) {
+            printf("Expected \")\" after condition in \"while\"\n");
+            exit(1);
+        }
+
+        node->then = ast_parse_stmt(&tok, tok);
+    } else if (tokenizer_token_equals(tok, "do")) {
+        node = ast_create_empty(AST_NODE_DO, tok);
+        tok = tok->next;
+
+        node->then = ast_parse_stmt(&tok, tok);
+
+        // no longer a regular "do", now its a "do while"
+        if (tokenizer_skip_token(&tok, "while")) {
+            if (!tokenizer_skip_token(&tok, "(")) {
+                printf("Expected \"(\" before condition in \"do while\"\n");
+                exit(1);
+            }
+
+            node->cond = ast_parse_stmt(&tok, tok);
+
+            if (!tokenizer_skip_token(&tok, ")")) {
+                printf("Expected \")\" after condition in \"do while\"\n");
+                exit(1);
+            }
+        }
+    } else if (tokenizer_token_equals(tok, "switch")) {
+        node = ast_create_empty(AST_NODE_SWITCH, tok);
+        tok = tok->next;
+
+        if (!tokenizer_skip_token(&tok, "(")) {
+            printf("Expected \"(\" before compare value in \"switch\"\n");
+            exit(1);
+        }
+
+        node->cmp_val = ast_parse_expr(&tok, tok);
+
+        if (!tokenizer_skip_token(&tok, ")")) {
+            printf("Expected \")\" after compare value in \"switch\"\n");
+            exit(1);
+        }
+
+        if (!tokenizer_skip_token(&tok, "{")) {
+            printf("Expected \"{\" before cases in \"switch\"\n");
+            exit(1);
+        }
+
+        // TODO: push switch to stack
+    } else if (tokenizer_token_equals(tok, "case")) {
+        // TODO: check if we are in a switch, if no switch is found, throw error
+
+        // the way cases work is a bit different
+        // logically, each case just defines a label to jump to
+        // the code in a case is not in its own scope
+        // think of it like plain assembly
+        // each case is a label that the program can jump to
+        // no scopes, no overhead
+        // just plain labels
+        // so how do we know which switch this case belongs to?
+        // its simple, when walking through the code, eventually we encounter a switch, then we store that switch in a switch stack, and when we encounter a case, the top of the stack (the last switch added), is the switch this case belongs to
+        // i might change it later, but right now i feel like this works just fine
+        node = ast_create_empty(AST_NODE_CASE, tok);
+        tok = tok->next;
+
+        // i dont get why C doesnt accept comma expressions here
+        // now i get how switch works, and that it NEEDS constant expressions (a constant value that does not execute any logic)
+        // but we have already implemented a nice parser function for comma separated expressions
+        // which is much nicer and more readable (in my opinion)
+        // instead of having to type out each case by hand
+        // case 1:
+        // case 2:
+        // case 3:
+        // etc...
+        // proper case in C:
+        /*
+        case 1:
+        case 2:
+        case 3:
+            // do something
+            break;
+        */
+        // you CANNOT do:
+        // case 1, 2, 3:
+        // for whatevery reason
+        // should i implement it maybe in my own version?
+        // TODO: come back to this later
+        node->cmp_val = ast_parse_expr(&tok, tok); // TODO: make sure, when validating code later, that the expression here is CONSTANT
+
+        if (!tokenizer_skip_token(&tok, ":")) {
+            printf("Expected \":\" after case value in \"case\"\n");
+            exit(1);
+        }
+    } else if (tokenizer_token_equals(tok, "}")) {
+        // TODO: check if switch stack is not empty, then pop switch
+    } else if (tokenizer_token_equals(tok, "{")) {
+        node = ast_parse_block_stmt(&tok, tok);
+    } else if (tokenizer_token_equals(tok, "return")) {
+        node = ast_create_empty(AST_NODE_RET, tok);
+        tok = tok->next;
+
+        node->lhs = ast_parse_expr(&tok, tok);
+
+        if (!tokenizer_skip_token(&tok, ";")) {
+            printf("Expected \";\" return value in \"return\"\n");
+            exit(1);
+        }
+    } else {
+        node = ast_parse_expr_stmt(&tok, tok);
     }
 
     *out = tok;

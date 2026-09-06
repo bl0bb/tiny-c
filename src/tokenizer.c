@@ -74,9 +74,18 @@ const char *TOKENIZER_PUNCTS[] = {
 };
 
 // misc for tokens
-bool tokenizer_token_equals(Token *tok, char *str) {
+bool tokenizer_token_equals(Token *tok, const char *str) {
     i32 len = strlen(str);
-    return strncmp(tok, str, len) == 0 && tok->len == len;
+    return strncmp(tok->start, str, len) == 0 && tok->len == len;
+}
+
+// if token equals string, then go to next token, return if string is equal
+bool tokenizer_skip_token(Token **tok, char *str) {
+    if (tokenizer_token_equals(*tok, str)) {
+        *tok = (*tok)->next;
+        return true;
+    }
+    return false;
 }
 
 // send in a reference of a pointer, and it will increment the referenced pointer as long as the current character is whitespace and not null

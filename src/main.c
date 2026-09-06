@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "types.h"
+#include "tinyc.h"
 #include "file.h"
 #include "tokenizer.h"
 
@@ -94,6 +94,8 @@ i32 main(i32 argc, char *argv[]) {
 
         cur_tok = cur_tok->next;
     }
+
+    ASTNode *head = ast_parse_file();
 
     // tokens do not reallocate their string value upon creation, they hold references, so we have to wait until the end of the program to free the buffer
     free(buffer);

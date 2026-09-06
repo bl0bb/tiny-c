@@ -4,136 +4,57 @@
 #include "tokenizer.h"
 #include "type.h"
 
-// AST = abstract syntax tree
-// a way to represent program logic
-// it represents "indidivual actions" the program logic does, not the "higher level" definitions
-// e.g. there is no "expression" or "statement" type as these labels are a category of multiple actions a program can do
-// e.g. these are expressions: 1 + 1, x * 3
-// but they are different logical actions (addition, subtraction)
-// ast nodes represent the lowest representation of logic without stepping into assembly
 
-// function definitions arent logical nodes by themselves, they represent variables passed in, stack scope and how it behaves, a function call however is part of the logic
 
-typedef enum {
-    AST_NODE_NONE = 0,
 
-    AST_NODE_ADD, // +
-    AST_NODE_SUB, // -
-    AST_NODE_MUL, // *
-    AST_NODE_DIV, // /
-    AST_NODE_MOD, // %
 
-    AST_NODE_LSHIFT, // <<
-    AST_NODE_RSHIFT, // >>
 
-    AST_NODE_NEG, // unary -
 
-    AST_NODE_ADDR, // unary &
-    AST_NODE_DEREF, // unary *
 
-    // -> is just: deref then member access
-    // like this:
-    // someStruct->someMember
-    // same as
-    // (*someStruct).someMember
-    AST_NODE_MEMBER, // .
 
-    AST_NODE_BNOT, // ~
-    AST_NODE_BAND, // &
-    AST_NODE_BOR, // |
-    AST_NODE_BXOR, // ^
 
-    AST_NODE_LNOT, // !
-    AST_NODE_LAND, // &&
-    AST_NODE_LOR, // ||
-    // wouldnt this be funny
-    // AST_NODE_LXOR, // ^^
 
-    AST_NODE_EQ, // ==
-    AST_NODE_NE, // !=
-    AST_NODE_LE, // <=
-    AST_NODE_GE, // >=
-    AST_NODE_LT, // <
-    AST_NODE_GT, // >
+bool ast_is_qualifier(Token *tok);
 
-    AST_NODE_IF, // "if"
-    AST_NODE_FOR, // "for" or "while"
-    AST_NODE_DO, // "do"
-    AST_NODE_SWITCH, // "switch"
-    AST_NODE_CASE, // "case" in a "switch"
-    AST_NODE_BLOCK, // block { ... }
-    AST_NODE_NUM, // numeric literal
-    AST_NODE_CAST, // type cast
-    AST_NODE_TERN, // ? :
-    AST_NODE_RET, // "return"
+ASTNode *ast_create_empty(ASTNodeType type, Token *tok);
+ASTNode *ast_create_unary(ASTNodeType type, ASTNode *lhs, Token *tok);
+ASTNode *ast_create_binary(ASTNodeType type, ASTNode *lhs, ASTNode *rhs, Token *tok);
 
-    AST_NODE_COMMA, // ,
+ASTNode *ast_create_num(Token *tok, u64 num);
+ASTNode *ast_create_str(Token *tok, char *str);
 
-    AST_NODE_ASSIGN, // assignment =
-    AST_NODE_VAR, // variable
-    AST_NODE_FUNCALL, // function call
-} ASTNodeType;
+Type *ast_parse_pointers(Token **out, Token *tok, Type *ty);
+Type *ast_arr_dims(Token **out, Token *tok, Type *ty);
+Type *ast_func_params(Token **out, Token *tok, Type *ty);
+Type *ast_type_suffix(Token **out, Token *tok, Type *ty);
+Type *ast_type(Token **out, Token *tok, Type *ty);
+Type *ast_decl(Token **out, Token *tok, DeclAttr *attr);
 
-typedef struct ASTNode ASTNode;
-struct ASTNode {
-    ASTNodeType type;
+ASTNode *ast_parse_expr(Token **out, Token *tok);
+ASTNode *ast_parse_expr_stmt(Token **out, Token *tok);
+ASTNode *ast_parse_comma(Token **out, Token *tok);
+ASTNode *ast_parse_assign(Token **out, Token *tok);
+ASTNode *ast_parse_tern(Token **out, Token *tok);
+ASTNode *ast_parse_lor(Token **out, Token *tok);
+ASTNode *ast_parse_land(Token **out, Token *tok);
+ASTNode *ast_parse_bor(Token **out, Token *tok);
+ASTNode *ast_parse_bxor(Token **out, Token *tok);
+ASTNode *ast_parse_band(Token **out, Token *tok);
+ASTNode *ast_parse_relational_eq(Token **out, Token *tok);
+ASTNode *ast_parse_relational_diff(Token **out, Token *tok);
+ASTNode *ast_parse_shift(Token **out, Token *tok);
+ASTNode *ast_parse_add_sub(Token **out, Token *tok);
+ASTNode *ast_parse_mul_div_mod(Token **out, Token *tok);
+ASTNode *ast_parse_prefix(Token **out, Token *tok);
+ASTNode *ast_parse_postfix(Token **out, Token *tok);
+ASTNode *ast_parse_primary(Token **out, Token *tok);
 
-    Type *ty;
+ASTNode *ast_parse_block_stmt(Token **out, Token *tok);
+ASTNode *ast_parse_stmt(Token **out, Token *tok);
 
-    // which token does this node belong to. used for debugging where parsing failed
-    Token *tok;
 
-    // in block statements, each statement inside is stored as a linked list
-    // the "next" member is used to access the next statement
-    ASTNode *next;
 
-    // data for each type
-    union {
-        // num
-        struct {
-            // just a copy paste from how tokens store numbers
-            // im still unsure how to store and use them
-            union {
-                u64 u64_val;
-                i64 i64_val;
-                f64 f64_val;
-            };
-        };
-        // unary / binary expression (unary only uses "lhs")
-        // return also uses "lhs" for return value
-        struct {
-            ASTNode *lhs;
-            ASTNode *rhs;
-        };
-        // if, ternary
-        struct {
-            ASTNode *cond;
-            ASTNode *then;
-            ASTNode *els;
-        };
-        // for / while (while only uses "cond" and "then")
-        struct {
-            ASTNode *init;
-            ASTNode *cond;
-            ASTNode *inc;
-            ASTNode *then;
-        };
-        // do / do while (if its a "do while" and not a regular "do", then cond is NOT 0. if condition is 0, that means its a regular "do")
-        // TODO: is there a better or easier-to-understand way of storing "do while" statements? should they perhaps be regular "while" statements with a flag of sorts? or just keep it as a "do"? idk
-        struct {
-            ASTNode *cond;
-            ASTNode *then;
-        };
-        // switch
-        struct {
-            ASTNode *cmp_val;
-            ASTNode *next_case; // first case in the case linked list for this switch
-        };
-        // case (in a switch)
-        struct {
-            ASTNode *val; // the value to check for in this case
-        };
-    };
-};
+
+
 
 #endif

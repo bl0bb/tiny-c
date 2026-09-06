@@ -1,4 +1,48 @@
 #include "ast.h"
+#include "array.h"
+#include <stdlib.h>
+#include <stdio.h>
+
+
+
+const char *PARSER_QUALIFIERS[] = {
+    // qualifiers
+    "static", "extern", "inline", "const", "volatile",
+
+
+
+
+    // // typedef
+    // "typedef",
+
+    // // types
+    // // tags
+    // "struct", "union",
+    // "enum",
+
+    // // misc
+    // "void", "bool",
+
+    // // integers
+    // // unsigned
+    // "u8", "u16", "u32", "u64",
+
+    // // signed
+    // "i8", "i16", "i32", "i64",
+
+
+    // // floats
+    // "f32", "f64",
+};
+
+bool ast_is_qualifier(Token *tok) {
+    for (i32 i = 0; i < ARRAY_SIZE(PARSER_QUALIFIERS); i++) {
+        if (tokenizer_token_equals(tok, PARSER_QUALIFIERS[i])) {
+            return true;
+        }
+    }
+    return false;
+}
 
 
 
@@ -40,6 +84,224 @@ ASTNode *ast_create_num(Token *tok, u64 num) {
 ASTNode *ast_create_str(Token *tok, char *str) {
 
 }
+
+ASTNode *ast_create_deref(Token *tok, ASTNode *lhs) {
+    return ast_create_unary(AST_NODE_DEREF, lhs, tok);
+}
+
+ASTNode *ast_create_index(Token *tok, ASTNode *lhs, ASTNode *idx) {
+    return ast_create_deref(tok, ast_create_binary(AST_NODE_ADD, lhs, idx, tok));
+}
+
+
+
+
+
+
+
+
+// parsing
+Type *ast_parse_pointers(Token **out, Token *tok, Type *ty) {
+    while (tokenizer_token_equals(tok, "*")) {
+        ty = type_pointer_to(ty);
+    }
+    return ty;
+}
+
+// parses array dimensions
+// e.g.
+// [], [5], [2][]
+Type *ast_arr_dims(Token **out, Token *tok, Type *ty) {
+    while (tok) {
+        if (!tokenizer_skip_token(&tok, "[")) {
+            break;
+        }
+        ASTNode *arr_len;
+        if (tokenizer_skip_token(&tok, "]")) {
+            // unknown length ([])
+            arr_len = 0;
+        } else {
+            // known length
+            // e.g.
+            // [123]
+            arr_len = ast_parse_expr(&tok, tok);
+            if (!tokenizer_skip_token(&tok, "]")) {
+                printf("Expected \"]\" after array dimension in array type\n");
+                exit(1);
+            }
+        }
+
+        // TODO: evaluate array len at compile time, probably best to do it after all parts of the program have been loaded into memory (so not here, but... maybe do it here? idk)
+        ty = type_array_of(ty, arr_len);
+    }
+
+    *out = tok;
+    return ty;
+}
+
+// parses function parameters
+// e.g.
+// (), (int), (char, int, char*)
+Type *ast_func_params(Token **out, Token *tok, Type *ty) {
+    if (tokenizer_skip_token(&tok, "(")) {
+        ty = type_func(ty);
+
+        Type *param = ty;
+
+        while (tok) {
+            DeclAttr attr = {};
+            Type *new_param = ast_decl(&tok, tok, &attr);
+
+            // TODO: validate for disallowed qualifiers in "attr"
+            // e.g. inline, typedef
+
+            new_param = ast_type(&tok, tok, new_param);
+            new_param->attr = attr;
+
+            param->next_param = new_param;
+            param = new_param;
+
+            if (!tokenizer_skip_token(&tok, ",")) {
+                break;
+            }
+        }
+
+        if (!tokenizer_skip_token(&tok, ")")) {
+            printf("Expected \")\" at end of parameter list in function type\n");
+            exit(1);
+        }
+    }
+
+    *out = tok;
+    return ty;
+}
+
+// parses the suffix part of a type
+// array dimensions and function parameters
+Type *ast_type_suffix(Token **out, Token *tok, Type *ty) {
+    if (tokenizer_token_equals(tok, "[")) {
+        ty = ast_arr_dims(&tok, tok, ty);
+    } else if (tokenizer_token_equals(tok, "(")) {
+        ty = ast_func_params(&tok, tok, ty);
+    }
+    *out = tok;
+    return ty;
+}
+
+// parses the pointer, array, function, name (optional) part of a type
+// e.g.
+//     const char *myArray[5]
+// parses this -> ~~~~~~~~~~~
+// for parsing a complete type
+// with specifiers / qualifiers "const"
+// and the resulting type name (char, int, etc...)
+// do something like:
+// Type *ty = ast_decl(...)
+// ty = ast_type(..., ty)
+Type *ast_type(Token **out, Token *tok, Type *ty) {
+    if (tokenizer_token_equals(tok, "struct")) {
+        // TODO
+        return 0;
+    } else if (tokenizer_token_equals(tok, "union")) {
+        // TODO
+        return 0;
+    }
+
+    ty = ast_parse_pointers(&tok, tok, ty);
+
+    if (tok->type == TOK_KEYWORD) {
+        ty->tok = tok;
+    } else if (tokenizer_token_equals(tok, "(")) {
+        tok = tok->next;
+        Type *inner_type = ast_type(&tok, tok, ty);
+
+        if (!tokenizer_skip_token(&tok, ")")) {
+            printf("Expected \")\" after parenthesized type\n");
+            exit(1);
+        }
+
+        inner_type->base = ty;
+        ty = inner_type;
+    }
+
+    ty = ast_type_suffix(&tok, tok, ty);
+
+    *out = tok;
+    return ty;
+}
+
+
+// parses declaration
+Type *ast_decl(Token **out, Token *tok, DeclAttr *attr) {
+    // get qualifiers
+    while (ast_is_qualifier(tok)) {
+        if (tokenizer_token_equals(tok, "const")) {
+            if (attr->is_const) {
+                printf("Declaration already declared \"const\"\n");
+                exit(1);
+            }
+            attr->is_const = true;
+        } else if (tokenizer_token_equals(tok, "extern")) {
+            if (attr->is_extern) {
+                printf("Declaration already declared \"extern\"\n");
+                exit(1);
+            }
+            attr->is_extern = true;
+        } else if (tokenizer_token_equals(tok, "inline")) {
+            if (attr->is_inline) {
+                printf("Declaration already declared \"inline\"\n");
+                exit(1);
+            }
+            attr->is_inline = true;
+        } else if (tokenizer_token_equals(tok, "static")) {
+            if (attr->is_static) {
+                printf("Declaration already declared \"static\"\n");
+                exit(1);
+            }
+            attr->is_static = true;
+        } else {
+            printf("This warning should NOT happen\n");
+            exit(1);
+        }
+        tok = tok->next;
+    }
+
+    // get the base type
+    Type *base_ty = 0;
+    if (tokenizer_token_equals(tok, "void")) {
+        base_ty = ty_void;
+    } else if (tokenizer_token_equals(tok, "bool")) {
+        base_ty = ty_bool;
+    } else if (tokenizer_token_equals(tok, "u8")) {
+        base_ty = ty_u8;
+    } else if (tokenizer_token_equals(tok, "u16")) {
+        base_ty = ty_u16;
+    } else if (tokenizer_token_equals(tok, "u32")) {
+        base_ty = ty_u32;
+    } else if (tokenizer_token_equals(tok, "u64")) {
+        base_ty = ty_u64;
+    } else if (tokenizer_token_equals(tok, "i8")) {
+        base_ty = ty_i8;
+    } else if (tokenizer_token_equals(tok, "i16")) {
+        base_ty = ty_i16;
+    } else if (tokenizer_token_equals(tok, "i32")) {
+        base_ty = ty_i32;
+    } else if (tokenizer_token_equals(tok, "i64")) {
+        base_ty = ty_i64;
+    } else if (tokenizer_token_equals(tok, "f32")) {
+        base_ty = ty_f32;
+    } else if (tokenizer_token_equals(tok, "f64")) {
+        base_ty = ty_f64;
+    }
+
+    // TODO: make a copy of base_ty?
+
+    *out = tok;
+    return base_ty;
+}
+
+
+
 
 
 // expects an expression and parses it
@@ -162,28 +424,24 @@ ASTNode *ast_parse_assign(Token **out, Token *tok) {
 // ternary
 // right to left
 // expr ? expr : expr
-// TODO: i forgot ternary was right to left, so its left to right at the moment, so make it right to left
 ASTNode *ast_parse_tern(Token **out, Token *tok) {
     ASTNode *lhs = ast_parse_lor(&tok, tok);
 
-    while (tok) {
-        if (!tokenizer_token_equals(tok, "?")) {
-            break;
-        }
+    if (tokenizer_token_equals(tok, "?")) {
         Token *start = tok;
 
         tok = tok->next;
 
-        ASTNode *if_true = ast_parse_lor(&tok, tok);
+        ASTNode *if_true = ast_parse_tern(&tok, tok);
 
         if (!tokenizer_skip_token(&tok, ":")) {
-            printf("Expected \":\"\n");
+            printf("Expected \":\" after true value in ternary\n");
             exit(1);
         }
 
-        ASTNode *if_false = ast_parse_lor(&tok, tok);
+        ASTNode *if_false = ast_parse_tern(&tok, tok);
 
-        ASTNode *tern = ast_create(AST_NODE_TERN, start);
+        ASTNode *tern = ast_create_empty(AST_NODE_TERN, start);
         tern->cond = lhs;
         tern->then = if_true;
         tern->els = if_false;
@@ -524,7 +782,7 @@ ASTNode *ast_parse_postfix(Token **out, Token *tok) {
             // is the same as
             // *(ptrOrArray + 5)
             ASTNode *idx = ast_parse_expr(&tok, tok);
-            lhs = ast_create_binary(AST_NODE_ADD, lhs, ast_create_index(lhs, idx), tok);
+            lhs = ast_create_binary(AST_NODE_ADD, lhs, ast_create_index(tok, lhs, idx), tok);
             lhs = ast_create_unary(AST_NODE_DEREF, lhs, tok);
         } else if (tokenizer_token_equals(op_tok, "(")) {
             // function call
@@ -589,7 +847,7 @@ ASTNode *ast_parse_block_stmt(Token **out, Token *tok) {
 ASTNode *ast_parse_stmt(Token **out, Token *tok) {
     ASTNode *node;
 
-    if (tokenizer_equals(tok, "if")) {
+    if (tokenizer_token_equals(tok, "if")) {
         node = ast_create_empty(AST_NODE_IF, tok);
         tok = tok->next;
 
@@ -752,4 +1010,22 @@ ASTNode *ast_parse_stmt(Token **out, Token *tok) {
 
     *out = tok;
     return node;
+}
+
+bool ast_is_function(Token *tok) {
+    
+}
+
+void ast_parse_file(Token *tok) {
+    while (tok) {
+        DeclAttr attr = {};
+        Type *ty = ast_decl(&tok, tok, &attr);
+        ty = ast_type(&tok, tok, ty);
+
+        if (ast_is_function()) {
+            // parse function and store it globally
+        } else {
+            // parse any other variable, typedef. basically anything that is not a function
+        }
+    }
 }

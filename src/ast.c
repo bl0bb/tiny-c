@@ -1,5 +1,6 @@
 #include "ast.h"
 #include "array.h"
+#include "log.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -35,6 +36,36 @@ const char *PARSER_QUALIFIERS[] = {
     // "f32", "f64",
 };
 
+
+
+
+File *current_file;
+
+// globals and locals are stored as linked lists
+// keep in mind that is uses a "reverse" linked list
+// e.g. adding a new global variable
+// new_global->next = globals;
+// globals = new_global;
+// this means "globals" and "locals" keep track of the last object added
+// this is because it is simpler (only keep track of tail, not head and tail)
+// and when same name variables exist in C, it references the last declaration with that name
+// e.g.
+/*
+int x = 5;
+if (true) {
+    int x = 7;
+    printf("%d\n", x); // 7, both variables exist, but x=7 was defined last
+}
+*/
+// since they are stored from tail to head (reverse)
+// this means searching through all variables for a name match means searching from last declared -> first declared
+// which should give the last match added instead of the first
+// keep in mind that same-name variables in the same scope will throw an error
+// but in the example above, the if statement creates a new scope which allows for a new variable with the same name to be declared
+ASTObj *globals;
+ASTObj *locals;
+
+
 bool ast_is_qualifier(Token *tok) {
     for (i32 i = 0; i < ARRAY_SIZE(PARSER_QUALIFIERS); i++) {
         if (tokenizer_token_equals(tok, PARSER_QUALIFIERS[i])) {
@@ -42,6 +73,19 @@ bool ast_is_qualifier(Token *tok) {
         }
     }
     return false;
+}
+
+
+
+// ast obj
+ASTObj *ast_create_obj(Type *ty, DeclAttr *attr) {
+    ASTObj *obj = calloc(1, sizeof(ASTObj));
+    obj->ty = ty;
+    obj->is_const = attr->is_const;
+    obj->is_static = attr->is_static;
+    obj->is_extern = attr->is_extern;
+    obj->is_inline = attr->is_inline;
+    return obj;
 }
 
 
@@ -89,6 +133,11 @@ ASTNode *ast_create_deref(Token *tok, ASTNode *lhs) {
     return ast_create_unary(AST_NODE_DEREF, lhs, tok);
 }
 
+// array indexing is just a derefing an offsetted pointer
+// e.g.
+// ptrOrArray[5]
+// is the same as
+// *(ptrOrArray + 5)
 ASTNode *ast_create_index(Token *tok, ASTNode *lhs, ASTNode *idx) {
     return ast_create_deref(tok, ast_create_binary(AST_NODE_ADD, lhs, idx, tok));
 }
@@ -104,7 +153,9 @@ ASTNode *ast_create_index(Token *tok, ASTNode *lhs, ASTNode *idx) {
 Type *ast_parse_pointers(Token **out, Token *tok, Type *ty) {
     while (tokenizer_token_equals(tok, "*")) {
         ty = type_pointer_to(ty);
+        tok = tok->next;
     }
+    *out = tok;
     return ty;
 }
 
@@ -126,7 +177,7 @@ Type *ast_arr_dims(Token **out, Token *tok, Type *ty) {
             // [123]
             arr_len = ast_parse_expr(&tok, tok);
             if (!tokenizer_skip_token(&tok, "]")) {
-                printf("Expected \"]\" after array dimension in array type\n");
+                error_tok(current_file, "Expected \"]\" after array dimension in array type", tok);
                 exit(1);
             }
         }
@@ -167,7 +218,7 @@ Type *ast_func_params(Token **out, Token *tok, Type *ty) {
         }
 
         if (!tokenizer_skip_token(&tok, ")")) {
-            printf("Expected \")\" at end of parameter list in function type\n");
+            error_tok(current_file, "Expected \")\" at end of parameter list in function type", tok);
             exit(1);
         }
     }
@@ -211,12 +262,13 @@ Type *ast_type(Token **out, Token *tok, Type *ty) {
 
     if (tok->type == TOK_KEYWORD) {
         ty->tok = tok;
+        tok = tok->next;
     } else if (tokenizer_token_equals(tok, "(")) {
         tok = tok->next;
         Type *inner_type = ast_type(&tok, tok, ty);
 
         if (!tokenizer_skip_token(&tok, ")")) {
-            printf("Expected \")\" after parenthesized type\n");
+            error_tok(current_file, "Expected \")\" after parenthesized type", tok);
             exit(1);
         }
 
@@ -237,30 +289,30 @@ Type *ast_decl(Token **out, Token *tok, DeclAttr *attr) {
     while (ast_is_qualifier(tok)) {
         if (tokenizer_token_equals(tok, "const")) {
             if (attr->is_const) {
-                printf("Declaration already declared \"const\"\n");
+                error_tok(current_file, "Declaration already declared \"const\"", tok);
                 exit(1);
             }
             attr->is_const = true;
         } else if (tokenizer_token_equals(tok, "extern")) {
             if (attr->is_extern) {
-                printf("Declaration already declared \"extern\"\n");
+                error_tok(current_file, "Declaration already declared \"extern\"", tok);
                 exit(1);
             }
             attr->is_extern = true;
         } else if (tokenizer_token_equals(tok, "inline")) {
             if (attr->is_inline) {
-                printf("Declaration already declared \"inline\"\n");
+                error_tok(current_file, "Declaration already declared \"inline\"", tok);
                 exit(1);
             }
             attr->is_inline = true;
         } else if (tokenizer_token_equals(tok, "static")) {
             if (attr->is_static) {
-                printf("Declaration already declared \"static\"\n");
+                error_tok(current_file, "Declaration already declared \"static\"", tok);
                 exit(1);
             }
             attr->is_static = true;
         } else {
-            printf("This warning should NOT happen\n");
+            error_tok(current_file, "Token marked as \"qualifier\" but did not match any qualifiers in the list", tok);
             exit(1);
         }
         tok = tok->next;
@@ -272,7 +324,7 @@ Type *ast_decl(Token **out, Token *tok, DeclAttr *attr) {
         base_ty = ty_void;
     } else if (tokenizer_token_equals(tok, "bool")) {
         base_ty = ty_bool;
-    } else if (tokenizer_token_equals(tok, "u8")) {
+    } else if (tokenizer_token_equals(tok, "u8") || tokenizer_token_equals(tok, "char")) {
         base_ty = ty_u8;
     } else if (tokenizer_token_equals(tok, "u16")) {
         base_ty = ty_u16;
@@ -292,7 +344,11 @@ Type *ast_decl(Token **out, Token *tok, DeclAttr *attr) {
         base_ty = ty_f32;
     } else if (tokenizer_token_equals(tok, "f64")) {
         base_ty = ty_f64;
+    } else {
+        error_tok(current_file, "No base type", tok);
+        exit(1);
     }
+    tok = tok->next;
 
     // TODO: make a copy of base_ty?
 
@@ -323,7 +379,7 @@ ASTNode *ast_parse_expr(Token **out, Token *tok) {
 ASTNode *ast_parse_expr_stmt(Token **out, Token *tok) {
     ASTNode *node = ast_parse_expr(&tok, tok);
     if (!tokenizer_skip_token(&tok, ";")) {
-        printf("Expected \";\" after expression\n");
+        error_tok(current_file, "Expected \";\" after expression", tok);
         exit(1);
     }
     *out = tok;
@@ -435,7 +491,7 @@ ASTNode *ast_parse_tern(Token **out, Token *tok) {
         ASTNode *if_true = ast_parse_tern(&tok, tok);
 
         if (!tokenizer_skip_token(&tok, ":")) {
-            printf("Expected \":\" after true value in ternary\n");
+            error_tok(current_file, "Expected \":\" after true value in ternary", tok);
             exit(1);
         }
 
@@ -697,7 +753,7 @@ ASTNode *ast_parse_prefix(Token **out, Token *tok) {
         // it does NOT turn a negative number positive (e.g. x = -10, +x is still -10)
         // so i guess i should just repeat the logic of a type cast to int (e.g. +x logically becomes (int)x)
         // TODO: to whats stated above
-        printf("Unary \"+\" not implemented\n");
+        error_tok(current_file, "Unary \"+\" not implemented", tok);
         exit(1);
     } else if (tokenizer_token_equals(tok, "-")) {
         op_type = AST_NODE_NEG;
@@ -713,11 +769,11 @@ ASTNode *ast_parse_prefix(Token **out, Token *tok) {
         // alignof and sizeof
         if (tokenizer_token_equals(tok, "sizeof")) {
             tok = tok->next;
-            printf("\"sizeof\" not implemented\n");
+            error_tok(current_file, "\"sizeof\" not implemented", tok);
             exit(1);
         } else if (tokenizer_token_equals(tok, "_Alignof")) {
             tok = tok->next;
-            printf("\"_Alignof\" not implemented\n");
+            error_tok(current_file, "\"_Alignof\" not implemented", tok);
             exit(1);
         }
 
@@ -733,8 +789,6 @@ ASTNode *ast_parse_prefix(Token **out, Token *tok) {
             // TODO: implement
         }
 
-        tok = tok->next;
-
         // if parenthesis is found, check if its a cast, or just a regular parenthesis (e.g. 5 * (3 + 2))
         // if its a cast, parse the cast, otherwise proceed to next parsing step (postfix)
         bool is_cast = false;
@@ -749,6 +803,10 @@ ASTNode *ast_parse_prefix(Token **out, Token *tok) {
             *out = tok;
             return node;
         }
+
+        tok = tok->next;
+
+        // TODO: implement the ++, -- part thing
     }
 
     tok = tok->next;
@@ -763,31 +821,66 @@ ASTNode *ast_parse_prefix(Token **out, Token *tok) {
 // value++, value--, someStruct.someMember, someStruct->someMember, funcCall(), arrayIndex[], etc...
 ASTNode *ast_parse_postfix(Token **out, Token *tok) {
     ASTNode *lhs = ast_parse_primary(&tok, tok);
+    note_tok(current_file, "Miau", tok);
 
     while (tok) {
         Token *op_tok = tok;
         tok = tok->next;
         if (tokenizer_token_equals(op_tok, "++")) {
+            // x++
+            // means use x first, then increment
+            // which, in terms of compilation is difficult to implement because of order of operation
+            // so logically
+            // x++ is (x = x + 1) - 1
+            // x += 1 returns the value of x after assignment, the -1 is used to get the original value of x
+            // when code generating, this will be optimized away
+            // there really is no better way of doing this without adding a whole lot of complexity and making everything more complicated
 
+            // x++ is (x = x + 1) - 1
+            // create the x + 1
+            ASTNode *x_plus_1 = ast_create_binary(AST_NODE_ADD, lhs, ast_create_num(tok, 1), tok);
+            // assign to x
+            ASTNode *assign_x = ast_create_binary(AST_NODE_ASSIGN, lhs, x_plus_1, tok);
+            // -1
+            ASTNode *sub_x = ast_create_binary(AST_NODE_SUB, assign_x, ast_create_num(tok, 1), tok);
+
+            lhs = sub_x;
         } else if (tokenizer_token_equals(op_tok, "--")) {
+            // x-- is (x = x - 1) + 1
+            // create the x - 1
+            ASTNode *x_sub_1 = ast_create_binary(AST_NODE_SUB, lhs, ast_create_num(tok, 1), tok);
+            // assign to x
+            ASTNode *assign_x = ast_create_binary(AST_NODE_ASSIGN, lhs, x_sub_1, tok);
+            // +1
+            ASTNode *add_x = ast_create_binary(AST_NODE_ADD, assign_x, ast_create_num(tok, 1), tok);
 
+            lhs = add_x;
         } else if (tokenizer_token_equals(op_tok, ".")) {
 
         } else if (tokenizer_token_equals(op_tok, "->")) {
 
         } else if (tokenizer_token_equals(op_tok, "[")) {
-            // array indexing is just a derefing an offsetted pointer
-            // e.g.
-            // ptrOrArray[5]
-            // is the same as
-            // *(ptrOrArray + 5)
             ASTNode *idx = ast_parse_expr(&tok, tok);
-            lhs = ast_create_binary(AST_NODE_ADD, lhs, ast_create_index(tok, lhs, idx), tok);
-            lhs = ast_create_unary(AST_NODE_DEREF, lhs, tok);
+            lhs = ast_create_index(tok, lhs, idx);
         } else if (tokenizer_token_equals(op_tok, "(")) {
             // function call
             // read arguments nodes and store them in the resulting AST_NODE_FUNCALL node
-            // TODO: implement
+            ASTNode *funcall = ast_create_empty(AST_NODE_FUNCALL, tok);
+            if (!tokenizer_skip_token(&tok, ")")) {
+                ASTNode *cur_arg = funcall;
+                while (tok) {
+                    ASTNode *arg = ast_parse_expr(&tok, tok);
+                    cur_arg->next_arg = arg;
+                    cur_arg = arg;
+                    if (tokenizer_skip_token(&tok, ")")) {
+                        break;
+                    }
+                    if (!tokenizer_skip_token(&tok, ",")) {
+                        error_tok(current_file, "Expected \")\" to close function call or \",\" between arguments", tok);
+                        exit(1);
+                    }
+                }
+            }
         } else {
             break;
         }
@@ -810,8 +903,26 @@ ASTNode *ast_parse_primary(Token **out, Token *tok) {
         node = ast_create_str(tok, tok->str_data);
     } else if (tok->type == TOK_KEYWORD) {
         // check if its NOT a keyword, that means its a variable
+        if (tokenizer_token_equals(tok, "struct")) {
+            // TODO: implement
+        }
+        if (tokenizer_token_equals(tok, "union")) {
+            // TODO: implement
+        }
+        if (tokenizer_token_equals(tok, "enum")) {
+            // TODO: implement
+        }
+        
+        // if matched with any other keyword that does not have any logic here, its incorrect
+        if (tokenizer_get_keyword(tok)) {
+            error_tok(current_file, "Unexpected keyword", tok);
+            exit(1);
+        }
+
+        node = ast_create_empty(AST_NODE_VAR, tok);
+        node->var = (ASTObj *)1; // TODO: lookup variable
     } else {
-        printf("Invalid primary expression\n");
+        error_tok(current_file, "Invalid primary expression", tok);
         exit(1);
     }
 
@@ -829,37 +940,50 @@ ASTNode *ast_parse_primary(Token **out, Token *tok) {
 // parses a block statement
 // "{" statements... "}"
 ASTNode *ast_parse_block_stmt(Token **out, Token *tok) {
-    if (!tokenizer_skip_token(&tok, "{")) {
-        printf("Expected \"{\" at start of block statement\n");
+    if (!tokenizer_token_equals(tok, "{")) {
+        error_tok(current_file, "Expected \"{\" at start of block statement", tok);
         exit(1);
     }
 
-    // TODO: parse statements in block here
+    ASTNode *block_stmt = ast_create_empty(AST_NODE_BLOCK, tok);
+    tok = tok->next;
 
-    if (!tokenizer_skip_token(&tok, "}")) {
-        printf("Expected \"}\" after block statement\n");
-        exit(1);
+    ASTNode head_stmt = {};
+    ASTNode *cur_stmt = &head_stmt;
+    while (tok) {
+        if (tokenizer_skip_token(&tok, "}")) {
+            break;
+        }
+
+        ASTNode *stmt = ast_parse_stmt(&tok, tok);
+
+        cur_stmt->next = stmt;
+        cur_stmt = stmt;
     }
+
+    block_stmt->body = head_stmt.next;
+
+    return block_stmt;
 }
 
 
 // parses a statement
 ASTNode *ast_parse_stmt(Token **out, Token *tok) {
-    ASTNode *node;
+    ASTNode *node = 0;
 
     if (tokenizer_token_equals(tok, "if")) {
         node = ast_create_empty(AST_NODE_IF, tok);
         tok = tok->next;
 
         if (!tokenizer_skip_token(&tok, "(")) {
-            printf("Expected \"(\" before condition in \"if\"\n");
+            error_tok(current_file, "Expected \"(\" before condition in \"if\"", tok);
             exit(1);
         }
 
         node->cond = ast_parse_expr(&tok, tok);
 
         if (!tokenizer_skip_token(&tok, ")")) {
-            printf("Expected \")\" after condition in \"if\"\n");
+            error_tok(current_file, "Expected \")\" after condition in \"if\"", tok);
             exit(1);
         }
 
@@ -873,7 +997,7 @@ ASTNode *ast_parse_stmt(Token **out, Token *tok) {
         tok = tok->next;
 
         if (!tokenizer_skip_token(&tok, "(")) {
-            printf("Expected \"(\" before loop setup in \"for\"\n");
+            error_tok(current_file, "Expected \"(\" before loop setup in \"for\"", tok);
             exit(1);
         }
 
@@ -882,7 +1006,7 @@ ASTNode *ast_parse_stmt(Token **out, Token *tok) {
         node->inc = ast_parse_expr(&tok, tok); // not a statement since its the last part of the loop setup and therefore doesnt contain a semicolon
 
         if (!tokenizer_skip_token(&tok, ")")) {
-            printf("Expected \")\" after loop setup in \"for\"\n");
+            error_tok(current_file, "Expected \")\" after loop setup in \"for\"", tok);
             exit(1);
         }
 
@@ -892,14 +1016,14 @@ ASTNode *ast_parse_stmt(Token **out, Token *tok) {
         tok = tok->next;
 
         if (!tokenizer_skip_token(&tok, "(")) {
-            printf("Expected \"(\" before condition in \"while\"\n");
+            error_tok(current_file, "Expected \"(\" before condition in \"while\"", tok);
             exit(1);
         }
 
         node->cond = ast_parse_expr(&tok, tok);
 
         if (!tokenizer_skip_token(&tok, ")")) {
-            printf("Expected \")\" after condition in \"while\"\n");
+            error_tok(current_file, "Expected \")\" after condition in \"while\"", tok);
             exit(1);
         }
 
@@ -913,14 +1037,14 @@ ASTNode *ast_parse_stmt(Token **out, Token *tok) {
         // no longer a regular "do", now its a "do while"
         if (tokenizer_skip_token(&tok, "while")) {
             if (!tokenizer_skip_token(&tok, "(")) {
-                printf("Expected \"(\" before condition in \"do while\"\n");
+                error_tok(current_file, "Expected \"(\" before condition in \"do while\"", tok);
                 exit(1);
             }
 
             node->cond = ast_parse_stmt(&tok, tok);
 
             if (!tokenizer_skip_token(&tok, ")")) {
-                printf("Expected \")\" after condition in \"do while\"\n");
+                error_tok(current_file, "Expected \")\" after condition in \"do while\"", tok);
                 exit(1);
             }
         }
@@ -929,19 +1053,19 @@ ASTNode *ast_parse_stmt(Token **out, Token *tok) {
         tok = tok->next;
 
         if (!tokenizer_skip_token(&tok, "(")) {
-            printf("Expected \"(\" before compare value in \"switch\"\n");
+            error_tok(current_file, "Expected \"(\" before compare value in \"switch\"", tok);
             exit(1);
         }
 
         node->cmp_val = ast_parse_expr(&tok, tok);
 
         if (!tokenizer_skip_token(&tok, ")")) {
-            printf("Expected \")\" after compare value in \"switch\"\n");
+            error_tok(current_file, "Expected \")\" after compare value in \"switch\"", tok);
             exit(1);
         }
 
         if (!tokenizer_skip_token(&tok, "{")) {
-            printf("Expected \"{\" before cases in \"switch\"\n");
+            error_tok(current_file, "Expected \"{\" before cases in \"switch\"", tok);
             exit(1);
         }
 
@@ -987,7 +1111,7 @@ ASTNode *ast_parse_stmt(Token **out, Token *tok) {
         node->cmp_val = ast_parse_expr(&tok, tok); // TODO: make sure, when validating code later, that the expression here is CONSTANT
 
         if (!tokenizer_skip_token(&tok, ":")) {
-            printf("Expected \":\" after case value in \"case\"\n");
+            error_tok(current_file, "Expected \":\" after case value in \"case\"", tok);
             exit(1);
         }
     } else if (tokenizer_token_equals(tok, "}")) {
@@ -1001,7 +1125,7 @@ ASTNode *ast_parse_stmt(Token **out, Token *tok) {
         node->lhs = ast_parse_expr(&tok, tok);
 
         if (!tokenizer_skip_token(&tok, ";")) {
-            printf("Expected \";\" return value in \"return\"\n");
+            error_tok(current_file, "Expected \";\" return value in \"return\"", tok);
             exit(1);
         }
     } else {
@@ -1013,19 +1137,124 @@ ASTNode *ast_parse_stmt(Token **out, Token *tok) {
 }
 
 bool ast_is_function(Token *tok) {
-    
+    if (tokenizer_token_equals(tok->next, "(")) {
+        return true;
+    }
+    return false;
 }
 
-void ast_parse_file(Token *tok) {
+void ast_parse_global_var(Token **out, Token *tok, Type *ty, DeclAttr *attr) {
+    ASTObj *var;
+
+
+
+    var->next = globals;
+    globals = var;
+    *out = tok;
+}
+
+void ast_parse_global_func(Token **out, Token *tok, Type *ty, DeclAttr *attr) {
+    ASTObj *func = ast_create_obj(ty, attr);
+    func->body = ast_parse_block_stmt(&tok, tok);
+
+
+
+    func->next = globals;
+    globals = func;
+    *out = tok;
+}
+
+void ast_print_type(Type *ty) {
+    while (ty) {
+        char *ty_str = 0;
+        switch (ty->type) {
+            case TY_NONE:
+                ty_str = "NONE";
+                break;
+            case TY_VOID:
+                ty_str = "VOID";
+                break;
+            case TY_BOOL:
+                ty_str = "BOOL";
+                break;
+            case TY_INT8:
+                ty_str = "INT8";
+                break;
+            case TY_INT16:
+                ty_str = "INT16";
+                break;
+            case TY_INT32:
+                ty_str = "INT32";
+                break;
+            case TY_INT64:
+                ty_str = "INT64";
+                break;
+            case TY_F32:
+                ty_str = "F32";
+                break;
+            case TY_F64:
+                ty_str = "F64";
+                break;
+            case TY_PTR:
+                ty_str = "PTR";
+                break;
+            case TY_ARRAY:
+                ty_str = "ARRAY";
+                break;
+            case TY_FUNC:
+                ty_str = "FUNC";
+                break;
+            case TY_ENUM:
+                ty_str = "ENUM";
+                break;
+            case TY_STRUCT:
+                ty_str = "STRUCT";
+                break;
+            case TY_UNION:
+                ty_str = "UNION";
+                break;
+            default:
+                printf("Corrupt type\n");
+                exit(1);
+        }
+
+        printf("%s", ty_str);
+
+        if (ty->base) {
+            printf(" -> ");
+            ty = ty->base;
+        } else {
+            break;
+        }
+    }
+
+    printf("\n");
+}
+
+void ast_parse_file(File *file, Token *tok) {
+    current_file = file;
+
+    // set globals as a nullptr to indicate end of linked list
+    globals = 0;
+
     while (tok) {
         DeclAttr attr = {};
         Type *ty = ast_decl(&tok, tok, &attr);
         ty = ast_type(&tok, tok, ty);
 
-        if (ast_is_function()) {
+        ast_print_type(ty);
+
+        if (attr.is_typedef) {
+            // TODO: add typedef
+            continue;
+        }
+
+        if (ty->type == TY_FUNC) {
             // parse function and store it globally
+            ast_parse_global_func(&tok, tok, ty, &attr);
         } else {
             // parse any other variable, typedef. basically anything that is not a function
+            ast_parse_global_var(&tok, tok, ty, &attr);
         }
     }
 }

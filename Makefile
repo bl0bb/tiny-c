@@ -1,9 +1,12 @@
 # run on windows
-# mingw32-make.exe run
+# clear; mingw32-make.exe run
+# run on windows with gdb
+# clear; mingw32-make.exe build-comp; gdb .\build\main.exe
 
 CC := gcc
 
 ERROR_FLAGS := \
+-g \
 # -Wall\
 # -Wextra\
 # -Werror\
@@ -18,6 +21,8 @@ src/file.h\
 \
 src/ast.h\
 src/ast.c\
+src/codegen.h\
+src/codegen.c\
 src/log.h\
 src/log.c\
 src/tokenizer.h\

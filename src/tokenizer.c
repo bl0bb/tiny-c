@@ -17,6 +17,7 @@ certain punctuations are more than one character, so we need to define them to:
 */
 // TODO: make sure theres no conflicting order between them, meaning if two puncts start with the same string, put the long one first to prevent it from tweaking out
 // e.g. "+" being before "+=" makes it interpret it as them being separate: "+" and "=" instead of together "+="
+// https://cppreference.com/cpp/language/expressions%23Operators
 const char *TOKENIZER_PUNCTS[] = {
     // arith assign
     "+=", "-=", "*=", "/=",
@@ -73,6 +74,69 @@ const char *TOKENIZER_PUNCTS[] = {
     ";",
 };
 
+// https://cppreference.com/c/keyword
+const char *TOKENIZER_KEYWORDS[] = {
+    "alignas",
+    "alignof",
+    "auto"
+    "bool",
+    "break",
+    "case",
+    "char",
+    "const",
+    "constexpr",
+    "continue",
+    "default",
+    "do",
+    "double",
+    "else",
+    "enum",
+    "extern",
+    "false",
+    "float",
+    "for",
+    "goto",
+    "if",
+    "inline",
+    "int",
+    "long",
+    "nullptr",
+    "register",
+    "restrict",
+    "return",
+    "short",
+    "signed",
+    "sizeof",
+    "static",
+    "static_assert",
+    "struct",
+    "switch",
+    "thread_local",
+    "true",
+    "typedef",
+    "typeof",
+    "typeof_unqual",
+    "union",
+    "unsigned",
+    "void",
+    "volatile",
+    "while",
+    "_Alignas",
+    "_Alignof",
+    "_Atomic",
+    "_BitInt",
+    "_Bool",
+    "_Complex",
+    "_Decimal128",
+    "_Decimal32",
+    "_Decimal64",
+    "_Generic",
+    "_Imaginary",
+    "_Noreturn",
+    "_Static_assert",
+    "_Thread_local",
+};
+
 // misc for tokens
 bool tokenizer_token_equals(Token *tok, const char *str) {
     i32 len = strlen(str);
@@ -86,6 +150,16 @@ bool tokenizer_skip_token(Token **tok, char *str) {
         return true;
     }
     return false;
+}
+
+// returns the index of the found keyword, otherwise returns -1
+i32 tokenizer_get_keyword(Token *tok) {
+    for (i32 i = 0; i < ARRAY_SIZE(TOKENIZER_KEYWORDS); i++) {
+        if (tokenizer_token_equals(tok, TOKENIZER_KEYWORDS[i])) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 // send in a reference of a pointer, and it will increment the referenced pointer as long as the current character is whitespace and not null

@@ -21,6 +21,7 @@ Type *ty_f64 = &(Type) { TY_F64, 8, 8, true };
 // create new basic type
 Type *type_new(TypeKind type, u32 size, u32 align) {
     Type *ty = calloc(1, sizeof(Type));
+    ty->type = type;
     ty->size = size;
     ty->align = align;
     return ty;

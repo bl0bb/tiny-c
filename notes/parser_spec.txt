@@ -51,10 +51,10 @@ parse the thing we are defining ^
 parsing global things
 
 variable:
-declaration specification + type + variable name + (optional) expression
+declaration specification + type + variable name + (optional) assignment or comma expression
 
 function:
-declaration specification + type + function name + function args (part of type suffix) + (optional) definition (compound statement)
+declaration specification + type + function name + function args (part of type suffix) + (optional) definition (block statement)
 
 
 
@@ -158,6 +158,12 @@ int x = 5;
 DWORD being the size of the operand (in this case: int)
 -4 being the variables offset (prev variable offset - operand size) (0 and 4 in this case)
 mov DWORD PTR [rbp-4], 5
+storing another int after this would be
+mov DWORD PTR [rbp-8], 5
+and storing a LONG (64 bit integer) after this would be
+mov QWORD PTR [rbp-16], 5
+(note that we use QWORD instead of DWORD, and we move the stack pointer down by 8 rather than 4 since a long is 8 bytes not 4)
+
 
 
 addition:

@@ -52,8 +52,7 @@ ASTNode *ast_parse_primary(Token **out, Token *tok);
 ASTNode *ast_parse_block_stmt(Token **out, Token *tok);
 ASTNode *ast_parse_stmt(Token **out, Token *tok);
 
-
-
+void ast_parse_file(File *file, Token *tok);
 
 
 

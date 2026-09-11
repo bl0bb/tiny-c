@@ -17,7 +17,7 @@ this is a multi line comment
 */
 
 
-int main(int argc, char *argv[]) {
+i32 main(i32 argc, char *argv[]) {
     printf("Hello, World!\n");
     return 0;
 }

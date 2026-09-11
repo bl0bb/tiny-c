@@ -10,6 +10,7 @@ typedef struct Token Token;
 typedef struct Type Type;
 typedef struct ASTNode ASTNode;
 typedef struct DeclAttr DeclAttr;
+typedef struct ASTObj ASTObj;
 
 
 
@@ -22,6 +23,7 @@ struct DeclAttr {
     bool is_static;
     bool is_extern;
     bool is_inline;
+    bool is_typedef;
     i32 align;
 };
 
@@ -308,7 +310,7 @@ struct ASTNode {
         };
         // do / do while (if its a "do while" and not a regular "do", then cond is NOT 0. if condition is 0, that means its a regular "do")
         // TODO: is there a better or easier-to-understand way of storing "do while" statements? should they perhaps be regular "while" statements with a flag of sorts? or just keep it as a "do"? idk
-        
+
         // switch
         struct {
             ASTNode *cmp_val;
@@ -318,9 +320,57 @@ struct ASTNode {
         struct {
             ASTNode *val; // the value to check for in this case
         };
+        // function call
+        struct {
+            ASTNode *next_arg; // used for both the first argument and the next arguments
+        };
+        // block
+        struct {
+            // body is used to access the first element
+            // because a block statement can have "loose" block statements inside
+            // using "next" for the first statement and every next statement would not work
+            // so we use "body" for the first statement
+            // e.g.
+            /*
+            if (x > 5) {
+                {
+                    // logic here
+                }
+                {
+                    // more logic here
+                }
+            }
+            */
+            ASTNode *body;
+        };
+        // variable
+        struct {
+            ASTObj *var;
+        };
     };
 };
 
+// object that is not code
+// this could be a string literal, global variable, function, etc...
+struct ASTObj {
+    // next global variable, next local variable, next function param
+    ASTObj *next;
+
+    Type *ty;
+
+    Token *tok; // TODO: token for this object, idk if i need it
+
+    ASTNode *init_data; // initializer for a global variable
+
+    bool is_const;
+    bool is_static;
+    bool is_extern;
+    bool is_inline;
+
+    // function
+    ASTNode *param; // first param, use .next on each param after that
+    ASTNode *body; // function body
+};
 
 
 

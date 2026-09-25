@@ -1,8 +1,10 @@
+#include <stdlib.h>
+#include <stdio.h>
+
 #include "ast.h"
 #include "array.h"
 #include "log.h"
-#include <stdlib.h>
-#include <stdio.h>
+#include "hashmap.h"
 
 
 
@@ -66,6 +68,13 @@ ASTObj *globals;
 ASTObj *locals;
 
 
+// the current scope we are parsing
+// scope is used to lookup variable names
+// look at the comments at "ASTObj *locals" to see that the example uses 2 variables with the same names, which is allowed but only if they are in different scopes, which they are
+// this is what the Scope struct is used for, keeping track of a scope stack for correct variable lookup
+Scope *scope;
+
+
 bool ast_is_qualifier(Token *tok) {
     for (i32 i = 0; i < ARRAY_SIZE(PARSER_QUALIFIERS); i++) {
         if (tokenizer_token_equals(tok, PARSER_QUALIFIERS[i])) {
@@ -77,14 +86,49 @@ bool ast_is_qualifier(Token *tok) {
 
 
 
+// scope
+Scope *ast_create_scope() {
+    Scope *new_scope = calloc(1, sizeof(Scope));
+    return new_scope;
+}
+
+void ast_push_scope() {
+    Scope *new_scope = ast_create_scope();
+    new_scope->next = scope;
+    scope = new_scope;
+}
+
+void ast_decl_var_in_scope(Token *tok, void *obj) {
+    // TODO: check for duplicate name
+    if (!hashmap_put_check(&scope->vars, tok->start, tok->len, obj)) {
+        error_tok(current_file, "Duplicate variable in same scope", tok);
+        exit(1);
+    }
+}
+
+void ast_decl_type_in_scope(Token *tok, void *obj) {
+    // TODO: check for duplicate name
+    if (!hashmap_put_check(&scope->vars, tok->start, tok->len, obj)) {
+        error_tok(current_file, "Duplicate type in same scope", tok);
+        exit(1);
+    }
+}
+
+// searches for a VARIABLE definition, if it finds a typedef or any other named object that is NOT a variable, it creates an error
+ScopeVar *ast_lookup_variable(Token *tok) {
+    return hashmap_get(scope, tok->start, tok->len);
+}
+
+
 // ast obj
-ASTObj *ast_create_obj(Type *ty, DeclAttr *attr) {
+ASTObj *ast_create_obj(Type *ty, DeclAttr *attr, Token *tok) {
     ASTObj *obj = calloc(1, sizeof(ASTObj));
     obj->ty = ty;
     obj->is_const = attr->is_const;
     obj->is_static = attr->is_static;
     obj->is_extern = attr->is_extern;
     obj->is_inline = attr->is_inline;
+    obj->tok = tok;
     return obj;
 }
 
@@ -261,6 +305,10 @@ Type *ast_type(Token **out, Token *tok, Type *ty) {
     ty = ast_parse_pointers(&tok, tok, ty);
 
     if (tok->type == TOK_KEYWORD) {
+        if (tokenizer_get_keyword(tok) != -1) {
+            error_tok(current_file, "Unexpected keyword in type", tok);
+            exit(1);
+        }
         ty->tok = tok;
         tok = tok->next;
     } else if (tokenizer_token_equals(tok, "(")) {
@@ -821,12 +869,11 @@ ASTNode *ast_parse_prefix(Token **out, Token *tok) {
 // value++, value--, someStruct.someMember, someStruct->someMember, funcCall(), arrayIndex[], etc...
 ASTNode *ast_parse_postfix(Token **out, Token *tok) {
     ASTNode *lhs = ast_parse_primary(&tok, tok);
-    note_tok(current_file, "Miau", tok);
 
     while (tok) {
         Token *op_tok = tok;
-        tok = tok->next;
         if (tokenizer_token_equals(op_tok, "++")) {
+            tok = tok->next;
             // x++
             // means use x first, then increment
             // which, in terms of compilation is difficult to implement because of order of operation
@@ -846,6 +893,7 @@ ASTNode *ast_parse_postfix(Token **out, Token *tok) {
 
             lhs = sub_x;
         } else if (tokenizer_token_equals(op_tok, "--")) {
+            tok = tok->next;
             // x-- is (x = x - 1) + 1
             // create the x - 1
             ASTNode *x_sub_1 = ast_create_binary(AST_NODE_SUB, lhs, ast_create_num(tok, 1), tok);
@@ -856,13 +904,21 @@ ASTNode *ast_parse_postfix(Token **out, Token *tok) {
 
             lhs = add_x;
         } else if (tokenizer_token_equals(op_tok, ".")) {
+            tok = tok->next;
 
+            lhs = ast_create_unary(AST_NODE_MEMBER, lhs, tok);
+            // TODO: implement member
         } else if (tokenizer_token_equals(op_tok, "->")) {
+            tok = tok->next;
 
+            lhs = ast_create_unary(AST_NODE_MEMBER, ast_create_unary(AST_NODE_DEREF, lhs, tok), tok);
+            // TODO: implement member
         } else if (tokenizer_token_equals(op_tok, "[")) {
+            tok = tok->next;
             ASTNode *idx = ast_parse_expr(&tok, tok);
             lhs = ast_create_index(tok, lhs, idx);
         } else if (tokenizer_token_equals(op_tok, "(")) {
+            tok = tok->next;
             // function call
             // read arguments nodes and store them in the resulting AST_NODE_FUNCALL node
             ASTNode *funcall = ast_create_empty(AST_NODE_FUNCALL, tok);
@@ -899,8 +955,10 @@ ASTNode *ast_parse_primary(Token **out, Token *tok) {
     ASTNode *node;
     if (tok->type == TOK_NUM) {
         node = ast_create_num(tok, tok->u64_val);
+        tok = tok->next;
     } else if (tok->type == TOK_STR) {
         node = ast_create_str(tok, tok->str_data);
+        tok = tok->next;
     } else if (tok->type == TOK_KEYWORD) {
         // check if its NOT a keyword, that means its a variable
         if (tokenizer_token_equals(tok, "struct")) {
@@ -912,15 +970,20 @@ ASTNode *ast_parse_primary(Token **out, Token *tok) {
         if (tokenizer_token_equals(tok, "enum")) {
             // TODO: implement
         }
-        
+
         // if matched with any other keyword that does not have any logic here, its incorrect
-        if (tokenizer_get_keyword(tok)) {
+        if (tokenizer_get_keyword(tok) != -1) {
             error_tok(current_file, "Unexpected keyword", tok);
             exit(1);
         }
 
+        ScopeVar *var = ast_lookup_variable(tok);
+        if (!var) {
+            
+        }
         node = ast_create_empty(AST_NODE_VAR, tok);
-        node->var = (ASTObj *)1; // TODO: lookup variable
+        node->var = var;
+        tok = tok->next;
     } else {
         error_tok(current_file, "Invalid primary expression", tok);
         exit(1);
@@ -963,6 +1026,7 @@ ASTNode *ast_parse_block_stmt(Token **out, Token *tok) {
 
     block_stmt->body = head_stmt.next;
 
+    *out = tok;
     return block_stmt;
 }
 
@@ -1143,24 +1207,61 @@ bool ast_is_function(Token *tok) {
     return false;
 }
 
-void ast_parse_global_var(Token **out, Token *tok, Type *ty, DeclAttr *attr) {
-    ASTObj *var;
+void ast_parse_global_var(Token **out, Token *tok, Type *base_ty, Type *ty, DeclAttr *attr) {
+    // im not a huge fan of how i wrote this, but since ast_type parses the first type everything else becomes sort of shifted, but at least this works without being too weird
+    Type *cur_ty = ty;
+    if (tokenizer_skip_token(&tok, "=")) {
+        while (tok) {
+            ASTNode *init_data = ast_parse_tern(&tok, tok); // comma and assignment expressions are ignored here, so call ast_parse_tern()
 
+            // TODO: create ast obj and assign init data and the rest of the data
+            ASTObj *var = ast_create_obj(cur_ty, attr, tok);
+            var->init_data = init_data;
 
+            ast_decl_in_scope(var);
 
-    var->next = globals;
-    globals = var;
+            if (tokenizer_skip_token(&tok, ";")) {
+                break;
+            }
+
+            if (!tokenizer_skip_token(&tok, ",")) {
+                error_tok(current_file, "Expected \",\" or \";\" after assignment in declaration", tok);
+                exit(1);
+            }
+
+            cur_ty = ast_type(&tok, tok, base_ty);
+
+            if (!tokenizer_skip_token(&tok, "=")) {
+                error_tok(current_file, "Expected \"=\" and an expression after variable in declaration", tok);
+                exit(1);
+            }
+        }
+    } else {
+        if (!tokenizer_skip_token(&tok, ";")) {
+            error_tok(current_file, "Expected \";\" after declaration", tok);
+            exit(1);
+        }
+    }
+
     *out = tok;
 }
 
 void ast_parse_global_func(Token **out, Token *tok, Type *ty, DeclAttr *attr) {
-    ASTObj *func = ast_create_obj(ty, attr);
+    ASTObj *func = ast_create_obj(ty, attr, tok);
     func->body = ast_parse_block_stmt(&tok, tok);
-
-
 
     func->next = globals;
     globals = func;
+    ast_decl_in_scope(func);
+    *out = tok;
+}
+
+void ast_parse_global_obj(Token **out, Token *tok, Type *base_ty, Type *ty, DeclAttr *attr) {
+    if (ty->type == TY_FUNC) {
+        ast_parse_global_func(&tok, tok, ty, attr);
+    } else {
+        ast_parse_global_var(&tok, tok, base_ty, ty, attr);
+    }
     *out = tok;
 }
 
@@ -1237,10 +1338,13 @@ void ast_parse_file(File *file, Token *tok) {
     // set globals as a nullptr to indicate end of linked list
     globals = 0;
 
+    scope = 0;
+    ast_push_scope();
+
     while (tok) {
         DeclAttr attr = {};
-        Type *ty = ast_decl(&tok, tok, &attr);
-        ty = ast_type(&tok, tok, ty);
+        Type *base_ty = ast_decl(&tok, tok, &attr);
+        Type *ty = ast_type(&tok, tok, base_ty);
 
         ast_print_type(ty);
 
@@ -1249,12 +1353,6 @@ void ast_parse_file(File *file, Token *tok) {
             continue;
         }
 
-        if (ty->type == TY_FUNC) {
-            // parse function and store it globally
-            ast_parse_global_func(&tok, tok, ty, &attr);
-        } else {
-            // parse any other variable, typedef. basically anything that is not a function
-            ast_parse_global_var(&tok, tok, ty, &attr);
-        }
+        ast_parse_global_obj(&tok, tok, base_ty, ty, &attr);
     }
 }

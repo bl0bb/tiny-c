@@ -10,6 +10,8 @@ typedef struct Token Token;
 typedef struct Type Type;
 typedef struct ASTNode ASTNode;
 typedef struct DeclAttr DeclAttr;
+typedef struct ScopeVar ScopeVar;
+typedef struct Scope Scope;
 typedef struct ASTObj ASTObj;
 
 
@@ -346,6 +348,47 @@ struct ASTNode {
         // variable
         struct {
             ASTObj *var;
+        };
+    };
+};
+
+// a scope
+struct Scope {
+    // in c, variables and typedefs cannot name collide, but they can share the same name with enums and structs, since enums and structs are prefixed
+    // e.g.
+    // i can define an enum
+    // enum color
+    // and a variable
+    // int color
+    // the way c knows the difference is because in order to use the "color" variable, i juse type "color"
+    // but in order to use the "color" enum i must type "enum color"
+    // same applies to structs
+    // which is why they also can name collide with variables
+    // so to implement this, you have 2 "name spaces" in each scope, one for variables / typedefs (which cannot name collide)
+    // and another for enums / structs, which do not name collide with variables / typedefs, but name collide with each other
+    
+    // vars is for variables and typedefs
+    HashMap vars;
+    // types is for structs and enums
+    HashMap types;
+    Scope *next;
+};
+
+// a var in a scope
+struct ScopeVar {
+    union {
+        // var
+        struct {
+            ASTObj *var;
+        };
+        // typedef
+        struct {
+            Type *type_def;
+        };
+        // struct
+        struct {
+            Type *enum_ty;
+            u64 enum_val;
         };
     };
 };

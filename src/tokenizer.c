@@ -41,6 +41,8 @@ const char *TOKENIZER_PUNCTS[] = {
     "##",
 
     // single char
+    // equal
+    "=",
     // logical not
     "!",
     // string literal
@@ -139,8 +141,7 @@ const char *TOKENIZER_KEYWORDS[] = {
 
 // misc for tokens
 bool tokenizer_token_equals(Token *tok, const char *str) {
-    i32 len = strlen(str);
-    return strncmp(tok->start, str, len) == 0 && tok->len == len;
+    return str_cmp_nnull(tok->start, tok->len, str);
 }
 
 // if token equals string, then go to next token, return if string is equal

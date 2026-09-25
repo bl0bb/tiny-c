@@ -5,6 +5,12 @@
 
 #include "string.h"
 
+// check if non null terminated string (str1, len1) is equal to null terminated string (str2)
+bool str_cmp_nnull(const char *str1, i32 len1, const char *str2) {
+    i32 len2 = strlen(str2);
+    return len1 == len2 && strncmp(str1, str2, len1) == 0;
+}
+
 bool str_starts_with(char *str, const char *cmp_str) {
     return strncmp(str, cmp_str, strlen(cmp_str)) == 0;
 }
